@@ -1,11 +1,13 @@
 import pyautogui
 import pygetwindow as gw
 import time
+import random
 from PIL import Image
 
 def capture_bluestacks_screen(interval, duration):
     # Find the BlueStacks window
     bluestacks_window = gw.getWindowsWithTitle('BlueStacks App Player')[0]
+    bluestacks_window.activate()
     
     if bluestacks_window is not None:
         start_time = time.time()
@@ -24,8 +26,11 @@ def capture_bluestacks_screen(interval, duration):
             # Crop the image to the specified area
             cropped_image = screenshot.crop(crop_area)
 
-            # Save or process the cropped screenshot
-            cropped_image.save(f"screenshot_{int(time.time())}.png")
+            # Convert the image to grayscale
+            grayscale_image = cropped_image.convert('L')
+
+            # Save or process the grayscale screenshot
+            grayscale_image.save(f"screenshot_{int(time.time())}.png")
 
             # Wait for the next frame
             time.sleep(interval)
