@@ -261,9 +261,9 @@ def main():
     state = update_frame_stack(frame_stack, initial_frame)
     score = 0
     replay_counter = 0
+    times_played = 0
 
     while True:
-        print(f"This is my {replay_counter} attempt at this game!")
         action = agent.act(state)
         perform_action(actions[action])
         
@@ -287,19 +287,23 @@ def main():
         agent.replay()
         replay_counter += 1
 
-         # Save the model every 10 replays
-        if replay_counter % 10 == 0:
+         # Save the model every 50 replays
+        if replay_counter % 50 == 0:
             agent.save('dqn_model_latest.pth')
             print("Model saved.")
 
         if game_over_flag:
             print("-   I have died. Restarting.")
+            print(f"This is attempt number {times_played}")
+            times_played += 1
             time.sleep(2)
             start_game()
             initial_frame = capture_screenshot()
             state = update_frame_stack(frame_stack, initial_frame)
             score = 0
             agent.update_target_model()
+
+        time.sleep(0.2)
 
 if __name__ == "__main__":
     agent = DQNAgent(STATE_SHAPE, ACTION_SIZE)
