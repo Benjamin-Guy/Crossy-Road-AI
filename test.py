@@ -29,8 +29,12 @@ def capture_bluestacks_screen(interval, duration):
             # Convert the image to grayscale
             grayscale_image = cropped_image.convert('L')
 
-            # Save or process the grayscale screenshot
-            grayscale_image.save(f"screenshot_{int(time.time())}.png")
+             # Halve the resolution of the image
+            new_size = (screenshot_width // 4, screenshot_height // 4)
+            resized_image = grayscale_image.resize(new_size)
+
+            # Save or process the resized screenshot
+            resized_image.save(f"screenshot_{int(time.time())}.png")
 
             # Wait for the next frame
             time.sleep(interval)
