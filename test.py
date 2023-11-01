@@ -3,6 +3,29 @@ import pygetwindow as gw
 import time
 import random
 from PIL import Image
+import pytesseract
+import re
+import numpy as np
+import cv2
+
+def get_score(image):
+    # Preprocess the image for better OCR accuracy
+    # Convert to grayscale
+    gray_image = image.convert('L')
+    # Apply thresholding
+    _, thresh_image = cv2.threshold(np.array(gray_image), 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    # Resize the image
+    resized_image = Image.fromarray(thresh_image).resize((2 * gray_image.width, 2 * gray_image.height), Image.Resampling.BILINEAR)
+    
+    # Use pytesseract to extract the score
+    text = pytesseract.image_to_string(resized_image, config='--psm 6')
+    
+    # Extract the score from the text using regex
+    match = re.search(r'\d+', text)
+    if match:
+        return int(match.group())
+    else:
+        return None
 
 def capture_bluestacks_screen(interval, duration):
     # Find the BlueStacks window
