@@ -110,6 +110,7 @@ def main():
     bluestacks_window = gw.getWindowsWithTitle('BlueStacks App Player')[0]
     bluestacks_window.activate()
     start_game()
+    score = 0
 
     print("Started playing.")
     while True:
@@ -118,16 +119,20 @@ def main():
             # Wait a bit for the game to go back to the start screen
             time.sleep(2)
             start_game()
+            score = 0
         else:
             print("I am still alive. Continuing.")
             # Perform a random action
-            #perform_random_action()
+            perform_random_action()
             score_image = capture_score_region(bluestacks_window)
+            old_score = score
             score = get_score(score_image)
+            if score == None or score < old_score:
+                score = old_score
             print("Current score:", score)
         
         # Wait a short period before the next action
-        time.sleep(0.2)
+        #time.sleep(0.01)
 
 if __name__ == "__main__":
     main()
