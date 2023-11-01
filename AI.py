@@ -16,7 +16,7 @@ from collections import deque
 actions = ['w', 'a', 's', 'd']
 
 # Hyperparameters
-STATE_SHAPE = 363*208  # Example shape, modify as needed
+STATE_SHAPE = (4, 208, 363)
 ACTION_SIZE = len(actions)
 LEARNING_RATE = 0.001
 MAX_MEMORY = 100000  # Maximum number of experiences stored in the memory buffer
@@ -33,22 +33,26 @@ frame_stack = deque(maxlen=4)
 class DQNNetwork(nn.Module):
     def __init__(self, state_shape, action_size):
         super(DQNNetwork, self).__init__()
-        self.fc1 = nn.Linear(state_shape, 128)
-        self.fc2 = nn.Linear(128, 128)
-        self.fc3 = nn.Linear(128, 64)
-        self.fc4 = nn.Linear(64, action_size)
-        self.dropout = nn.Dropout(0.1)
-        self.batch_norm1 = nn.BatchNorm1d(128)
-        self.batch_norm2 = nn.BatchNorm1d(64)
+        self.conv1 = nn.Conv2d(state_shape[0], 32, kernel_size=8, stride=4)
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=4, stride=2)
+        self.conv3 = nn.Conv2d(64, 64, kernel_size=3, stride=1)
+
+        # Use a dummy input to calculate the size of the flattened layer
+        with torch.no_grad():
+            dummy_input = torch.zeros(1, *state_shape)
+            dummy_output = self.conv3(self.conv2(self.conv1(dummy_input)))
+            self.flattened_size = dummy_output.numel()
+
+        self.fc1 = nn.Linear(self.flattened_size, 512)  # Adjusted the size to match the flattened layer
+        self.fc2 = nn.Linear(512, action_size)
 
     def forward(self, x):
-        x = torch.flatten(x, start_dim=1)  # Flatten the input
-        x = torch.relu(self.batch_norm1(self.fc1(x)))
-        x = self.dropout(x)
-        x = torch.relu(self.batch_norm2(self.fc2(x)))
-        x = self.dropout(x)
-        x = torch.relu(self.fc3(x))
-        return self.fc4(x)
+        x = torch.relu(self.conv1(x))
+        x = torch.relu(self.conv2(x))
+        x = torch.relu(self.conv3(x))
+        x = x.view(x.size(0), -1)
+        x = torch.relu(self.fc1(x))
+        return self.fc2(x)
 
 class DQNAgent:
     def __init__(self, state_shape, action_size):
@@ -104,11 +108,36 @@ class DQNAgent:
         for target_param, local_param in zip(self.target_model.parameters(), self.model.parameters()):
             target_param.data.copy_(TAU*local_param.data + (1.0-TAU)*target_param.data)
 
+    def save(self, filename="dqn_model.pth"):
+        torch.save(self.model.state_dict(), filename)
+
+    def load(self, filename="dqn_model.pth"):
+        self.model.load_state_dict(torch.load(filename))
+        self.model.eval()  # Set the model to evaluation mode
+
+def preprocess_image(image):
+    # Convert the image to grayscale (if not already)
+    image = image.convert('L')
+    # Convert the image to a numpy array and normalize it
+    image = np.array(image) / 255.0
+    return image
+
+def update_frame_stack(frame_stack, new_frame):
+    # Preprocess the new frame
+    new_frame = preprocess_image(new_frame)
+    # Append the new frame to the deque
+    frame_stack.append(new_frame)
+    # Stack the frames along a new dimension to create a single array
+    if len(frame_stack) < 4:
+        # If we have fewer than 4 frames, repeat the first frame to fill the stack
+        return np.stack([frame_stack[0]] * (4 - len(frame_stack)) + list(frame_stack), axis=0)
+    else:
+        return np.stack(frame_stack, axis=0)
+
 def perform_action(action):
     # Perform the specified action
     print(f"-   I pressed: {action}")
     pyautogui.keyDown(action)
-    time.sleep(0.05)  # Hold the key for a short duration
     pyautogui.keyUp(action)
 
 def capture_screenshot():
@@ -131,6 +160,7 @@ def capture_screenshot():
         # Halve the resolution of the image
     new_size = (screenshot_width // 4, screenshot_height // 4)
     resized_image = grayscale_image.resize(new_size)
+    #resized_image.save(f"screenshot_.png")
 
     return resized_image
 
@@ -223,20 +253,22 @@ def capture_score_region(bluestacks_window):
 
 # Main Loop for DQN
 def main():
-    agent = DQNAgent(STATE_SHAPE, ACTION_SIZE)
     bluestacks_window = gw.getWindowsWithTitle('BlueStacks App Player')[0]
     bluestacks_window.activate()
+    time.sleep(2)
     start_game()
-    state = capture_screenshot()
-    state = np.reshape(state, [1, STATE_SHAPE])
+    initial_frame = capture_screenshot()
+    state = update_frame_stack(frame_stack, initial_frame)
     score = 0
+    replay_counter = 0
 
     while True:
+        print(f"This is my {replay_counter} attempt at this game!")
         action = agent.act(state)
         perform_action(actions[action])
         
-        next_state = capture_screenshot()
-        next_state = np.reshape(next_state, [1, STATE_SHAPE])
+        next_frame = capture_screenshot()
+        next_state = update_frame_stack(frame_stack, next_frame)
         
         score_image = capture_score_region(bluestacks_window)
         old_score = score
@@ -247,24 +279,35 @@ def main():
         
         game_over_flag = game_over()
         
-        # Calculate the reward based on the change in score and whether the game is over
-        reward = score - old_score
-        if game_over_flag:
-            reward -= 100  # Penalize for dying
+        reward = calculate_reward(old_score, score, game_over_flag)
 
         agent.remember(state, action, reward, next_state, game_over_flag)
         state = next_state
         
         agent.replay()
+        replay_counter += 1
+
+         # Save the model every 10 replays
+        if replay_counter % 10 == 0:
+            agent.save('dqn_model_latest.pth')
+            print("Model saved.")
 
         if game_over_flag:
             print("-   I have died. Restarting.")
             time.sleep(2)
             start_game()
-            state = capture_screenshot()
-            state = np.reshape(state, [1, STATE_SHAPE])
+            initial_frame = capture_screenshot()
+            state = update_frame_stack(frame_stack, initial_frame)
             score = 0
             agent.update_target_model()
 
 if __name__ == "__main__":
+    agent = DQNAgent(STATE_SHAPE, ACTION_SIZE)
+
+    # Load an existing model if needed
+    model_path = "dqn_model_latest.pth"
+    if os.path.isfile(model_path):
+        agent.load(model_path)
+        print(f"Loaded model from {model_path}")
+
     main()
